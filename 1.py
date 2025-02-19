@@ -78,3 +78,4 @@ print("\n✅ Données finales :")
 print(df_all.head())
 print("\n📊 Shape:", df_all.shape)
 print("\n✅ Colonnes finales :", df_all.columns.tolist())
+
