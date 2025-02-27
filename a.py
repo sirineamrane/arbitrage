@@ -1,87 +1,90 @@
-﻿# DATA COLLECTION, CLEANING, PREPROCESSING
+import numpy as np
 import pandas as pd
-import yfinance as yf
 import datetime
 import os
-import time
 
-# ✅ 1️⃣ Définition des actifs
-assets = {
-    "WTI": "CL=F",
-    "Brent": "BZ=F",
-    "USD": "DX-Y.NYB",
-    "OVX": "^OVX",
-    "VIX": "^VIX"
+# ✅ 1️⃣ Définition des paramètres
+start_date = datetime.datetime(2008, 1, 1)  
+end_date = datetime.datetime.now()
+date_range = pd.date_range(start=start_date, end=end_date, freq="B")  # Jours ouvrables
+
+np.random.seed(42)  # Réplicabilité
+
+# ✅ 2️⃣ Fonction avancée de génération des prix avec volatilité adaptative et chocs
+def generate_oil_data_advanced(base_price, volatility, trend=0.0005, max_price=200, shock_prob=0.005):
+    """ Génère des prix réalistes avec des chocs de marché, une volatilité adaptative et des tendances. """
+    prices = [base_price]
+    vol = volatility  
+
+    for i in range(1, len(date_range)):
+        change = np.random.normal(loc=trend, scale=vol)
+
+        # 📉📈 Simulation de chocs de marché (événements géopolitiques, OPEP, crises)
+        if np.random.rand() < shock_prob:
+            shock = np.random.choice([-1, 1]) * np.random.uniform(0.05, 0.15)  # Choc de -5% à +15%
+            change += shock
+            vol *= 1.5  # Augmente la volatilité après un choc
+
+        # 🔄 Volatilité diminue progressivement après un choc
+        vol = max(vol * 0.99, volatility)
+
+        # 🛢️ Appliquer le changement et limiter
+        new_price = prices[-1] * np.exp(change)
+        new_price = min(new_price, max_price)
+        new_price = max(new_price, 10)  
+
+        prices.append(new_price)
+
+    return np.array(prices)
+
+# ✅ 3️⃣ Création des données simulées avec corrélations réalistes
+oil_data = {
+    "date": date_range,
+    "wti_close": generate_oil_data_advanced(base_price=70, volatility=0.02, max_price=200),
+    "brent_close": generate_oil_data_advanced(base_price=75, volatility=0.02, max_price=200),
+    "usd_close": generate_oil_data_advanced(base_price=90, volatility=0.005, trend=-0.0005, max_price=150),
+    "ovx_close": generate_oil_data_advanced(base_price=35, volatility=0.03, max_price=100),
+    "vix_close": generate_oil_data_advanced(base_price=20, volatility=0.025, max_price=100),
+    "wti_volume": np.random.randint(50000, 150000, size=len(date_range)),
+    "brent_volume": np.random.randint(50000, 150000, size=len(date_range)),
 }
 
-# ✅ 2️⃣ Période
-start_date = "2010-01-01"
-end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+df_fake = pd.DataFrame(oil_data)
 
-# ✅ 3️⃣ Téléchargement robuste avec retry
-attempts = 3
-for i in range(attempts):
-    try:
-        df_all = yf.download(list(assets.values()), start=start_date, end=end_date, group_by="ticker")
-        break  # Stop retry loop if success
-    except Exception as e:
-        print(f"⚠️ Erreur lors du téléchargement, tentative {i+1}/{attempts}...")
-        time.sleep(3)
+# ✅ 4️⃣ Ajout de corrélations réalistes
+# 🔄 Corrélation négative entre le pétrole et le dollar
+df_fake["usd_close"] = df_fake["usd_close"] - 0.1 * (df_fake["wti_close"] - df_fake["wti_close"].mean())
+
+# 🔄 Corrélation positive entre OVX (volatilité du pétrole) et VIX (volatilité marché global)
+df_fake["ovx_close"] = df_fake["ovx_close"] + 0.3 * (df_fake["vix_close"] - df_fake["vix_close"].mean())
+
+# ✅ 5️⃣ Vérification des valeurs extrêmes
+print(f"Max WTI Close: {max(df_fake['wti_close'])}")
+print(f"Max Brent Close: {max(df_fake['brent_close'])}")
+print(f"Max OVX Close: {max(df_fake['ovx_close'])}")
+print(f"Max VIX Close: {max(df_fake['vix_close'])}")
+
+# ✅ 6️⃣ Sauvegarde en CSV
+file_path_csv = "a.csv"
+df_fake.to_csv(file_path_csv, index=False)
+
+# ✅ 7️⃣ Vérification automatique du fichier CSV
+if os.path.exists(file_path_csv):
+    print(f"✅ Le fichier {file_path_csv} a bien été créé avec {df_fake.shape[0]} lignes.")
 else:
-    raise Exception("🚨 Échec du téléchargement après plusieurs tentatives !")
-# Vérification si les données ont été récupérées :
+    print(f"❌ Erreur : le fichier {file_path_csv} n'a pas été créé.")
 
-if df_all.empty:
-    raise ValueError(" Le DataFrame est vide !")
+# ✅ 8️⃣ Sauvegarde en Parquet
+try:
+    import pyarrow
+    file_path_parquet = "a.parquet"
+    df_fake.to_parquet(file_path_parquet, engine="pyarrow", compression="snappy")
 
-# ✅ 4️⃣ Aplatir les colonnes proprement
-if isinstance(df_all.columns, pd.MultiIndex):
-    df_all.columns = ['_'.join(col).strip() for col in df_all.columns]
-df_all.reset_index(inplace=True)
+    if os.path.exists(file_path_parquet):
+        print(f"✅ Le fichier {file_path_parquet} a bien été créé avec {df_fake.shape[0]} lignes et {df_fake.shape[1]} colonnes.")
+    else:
+        print(f"❌ Erreur : le fichier {file_path_parquet} n'a pas été créé.")
 
-# ✅ 5️⃣ Nettoyage des noms de colonnes
-df_all.columns = (
-    df_all.columns.str.lower()
-    .str.replace(r"[\^=]", "_", regex=True)
-    .str.replace(r"[^\w]", "_", regex=True)
-    .str.replace("__", "_")
-    .str.strip("_")
-)
-
-# ✅ 6️⃣ Vérification et correction dynamique du renommage
-rename_columns = {col: col.replace("bz_f", "brent").replace("cl_f", "wti").replace("dx_y_nyb", "usdindex") 
-                  for col in df_all.columns if "bz_f" in col or "cl_f" in col or "dx_y_nyb" in col}
-
-df_all.rename(columns=rename_columns, inplace=True)
-
-# ✅ 7️⃣ Vérifier et combler les valeurs manquantes
-df_all.fillna(method='ffill', inplace=True)  # Remplissage par les valeurs précédentes
-df_all.fillna(method='bfill', inplace=True)  # Remplissage par les valeurs suivantes
-df_all.fillna(0, inplace=True)  # Dernier recours, remplace les NaN restants par 0
-
-# ✅ 8️⃣ Suppression finale des colonnes `ovx_*` et `vix_*`
-cols_to_drop = [col for col in df_all.columns if "ovx" in col or "vix" in col]
-df_all.drop(columns=cols_to_drop, errors="ignore", inplace=True)
-
-# ✅ 9️⃣ Vérifier après suppression
-print("\n✅ Colonnes après suppression OVX/VIX :")
-print(df_all.columns.tolist())
-
-# ✅ 🔥 1️⃣0️⃣ Enregistrement, écriture propre et sécurisée
-file_path = "a.parquet"
-
-if os.path.exists(file_path):
-    df_old = pd.read_parquet(file_path)
-    df_all = pd.concat([df_old, df_all]).drop_duplicates(subset=["date"], keep="last").reset_index(drop=True)
-
-temp_file = file_path + ".tmp"
-df_all.to_parquet(temp_file, engine="pyarrow", compression="snappy")
-os.replace(temp_file, file_path)
-
-# ✅ 1️⃣1️⃣ Vérification finale
-print("\n✅ Données finales :")
-print(df_all.head())
-print("\n📊 Shape:", df_all.shape)
-print("\n✅ Colonnes finales :", df_all.columns.tolist())
-
+except ImportError:
+    print("⚠️ pyarrow n'est pas installé. Installe-le avec : pip install pyarrow")
 
